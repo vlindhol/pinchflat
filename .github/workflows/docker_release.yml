@@ -1,6 +1,18 @@
-name: Docker Release
+name: Docker Release (fork)
+
+# Builds and publishes ghcr.io/vlindhol/pinchflat images.
+#
+# Tagging:
+#   - push to master    -> ghcr.io/vlindhol/pinchflat:latest (plus a sha-* tag)
+#   - workflow_dispatch -> ghcr.io/vlindhol/pinchflat:dev (or custom tag)
+#
+# The production container on shirgit uses `AutoUpdate=registry`, so pushing
+# :latest is what rolls out new versions to the server.
 
 on:
+  push:
+    branches:
+      - master
   workflow_dispatch:
     inputs:
       platforms:
@@ -16,13 +28,6 @@ on:
         description: 'Docker Tags'
         required: true
         default: 'dev'
-
-  push:
-    branches:
-      - master
-  release:
-    types:
-      - published
 
 jobs:
   build_and_push_docker:
@@ -41,28 +46,18 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: |
-            docker.io/keglin/pinchflat
-            ghcr.io/${{ github.repository }}
-          # All non-release actions will be tagged as `dev` (ie: push, workflow_dispatch)
+          images: ghcr.io/${{ github.repository }}
           tags: |
-            type=ref,event=tag
-            type=raw,value=dev,enable=${{ github.event_name != 'release' && github.event_name != 'workflow_dispatch' }}
+            # master pushes roll out automatically: :latest + an immutable sha tag
+            type=raw,value=latest,enable=${{ github.event_name == 'push' }}
+            type=sha
+            # manual runs stay off :latest by default
             type=raw,value=${{ inputs.docker_tags }},enable=${{ github.event_name == 'workflow_dispatch' }}
           flavor: |
-            latest=auto
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+            latest=false
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
@@ -76,9 +71,7 @@ jobs:
         with:
           context: .
           file: ./docker/selfhosted.Dockerfile
-          # If the event is a release, use the release_arch, otherwise use the
-          # platforms input if present, falling back to dev_arch
-          platforms: ${{ github.event_name == 'release' && env.release_arch || (github.event.inputs.platforms || env.dev_arch) }}
+          platforms: ${{ github.event.inputs.platforms || env.dev_arch }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
