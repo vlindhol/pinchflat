@@ -1,0 +1,87 @@
+name: Sync with upstream
+
+# Keeps the fork in sync with kieraneglin/pinchflat:
+#   1. upstream-master is fast-forwarded to upstream's master (pure mirror)
+#   2. shirgit is rebased onto upstream-master (replays our patch stack)
+#
+# If the rebase hits conflicts, the rebase is aborted and an issue is opened
+# so a human can resolve it manually:
+#   git fetch upstream
+#   git push origin upstream/master:upstream-master
+#   git checkout shirgit
+#   git rebase upstream-master   # resolve conflicts here
+#   git push --force-with-lease origin shirgit
+#
+# Runs weekly; can also be triggered manually from the Actions tab.
+
+on:
+  schedule:
+    - cron: '0 6 * * 1' # Mondays at 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout shirgit
+        uses: actions/checkout@v4
+        with:
+          ref: shirgit
+          fetch-depth: 0
+
+      - name: Add upstream remote and fetch
+        run: |
+          git remote add upstream https://github.com/kieraneglin/pinchflat.git
+          git fetch upstream master
+
+      - name: Fast-forward upstream-master mirror
+        run: |
+          git push origin refs/remotes/upstream/master:refs/heads/upstream-master
+
+      - name: Rebase shirgit onto upstream-master
+        id: rebase
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if git rebase upstream-master shirgit; then
+            echo "result=success" >> "$GITHUB_OUTPUT"
+          else
+            git rebase --abort
+            echo "result=conflict" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Push rebased shirgit
+        if: steps.rebase.outputs.result == 'success'
+        run: |
+          git push --force-with-lease origin shirgit
+
+      - name: Report rebase conflicts via issue
+        if: steps.rebase.outputs.result == 'conflict'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue create \
+            --title "Upstream sync needs manual rebase" \
+            --body "The scheduled upstream sync hit rebase conflicts between shirgit and upstream-master.
+
+          Resolve manually:
+
+          \`\`\`bash
+          git fetch upstream
+          git push origin upstream/master:upstream-master
+          git checkout shirgit
+          git rebase upstream-master
+          git push --force-with-lease origin shirgit
+          \`\`\`
+
+          (Automated by the upstream sync workflow)" \
+            --repo vlindhol/pinchflat

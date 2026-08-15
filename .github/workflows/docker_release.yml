@@ -3,16 +3,24 @@ name: Docker Release (fork)
 # Builds and publishes ghcr.io/vlindhol/pinchflat images.
 #
 # Tagging:
-#   - push to master    -> ghcr.io/vlindhol/pinchflat:latest (plus a sha-* tag)
+#   - push to shirgit   -> ghcr.io/vlindhol/pinchflat:latest (plus a sha-* tag)
 #   - workflow_dispatch -> ghcr.io/vlindhol/pinchflat:dev (or custom tag)
 #
-# The production container on shirgit uses `AutoUpdate=registry`, so pushing
-# :latest is what rolls out new versions to the server.
+# The production container uses `AutoUpdate=registry`, so pushing :latest
+# is what rolls out new versions to the server.
+#
+# Branch layout in this fork:
+#   shirgit         - default branch = upstream + our patch stack; this is
+#                     what gets published and deployed
+#   upstream-master - untouched mirror of kieraneglin/pinchflat master;
+#                     kept in sync by the sync workflow, we rebase shirgit
+#                     onto it (intentionally does NOT trigger this workflow,
+#                     so a plain upstream sync never ships unpatched builds)
 
 on:
   push:
     branches:
-      - master
+      - shirgit
   workflow_dispatch:
     inputs:
       platforms:

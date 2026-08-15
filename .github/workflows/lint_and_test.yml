@@ -3,10 +3,11 @@ name: Perform linting and run tests
 on:
   push:
     branches:
-      - master
+      - shirgit
+      - upstream-master
   pull_request:
     branches:
-      - master
+      - shirgit
   workflow_dispatch:
 
 jobs:
