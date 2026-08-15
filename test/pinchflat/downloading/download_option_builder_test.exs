@@ -33,6 +33,28 @@ defmodule Pinchflat.Downloading.DownloadOptionBuilderTest do
       assert {:output, "/tmp/test/media/#{media_item.source.custom_name}.%(ext)s"} in res
     end
 
+    test "sanitizes unsafe Unicode in custom path components", %{media_item: media_item} do
+      {:ok, _source} = Sources.update_source(media_item.source, %{custom_name: "Werewolf： Chosen Edition"})
+
+      media_item =
+        update_media_profile_attribute(media_item, %{output_path_template: "{{ source_custom_name }}.%(ext)s"})
+
+      assert {:ok, res} = DownloadOptionBuilder.build(media_item)
+
+      assert {:output, "/tmp/test/media/Werewolf- Chosen Edition.%(ext)s"} in res
+    end
+
+    test "sanitizes path separators in custom path components", %{media_item: media_item} do
+      {:ok, _source} = Sources.update_source(media_item.source, %{custom_name: "foo/bar:baz"})
+
+      media_item =
+        update_media_profile_attribute(media_item, %{output_path_template: "{{ source_custom_name }}.%(ext)s"})
+
+      assert {:ok, res} = DownloadOptionBuilder.build(media_item)
+
+      assert {:output, "/tmp/test/media/foo_bar_baz.%(ext)s"} in res
+    end
+
     test "respects custom media_item-related output path options", %{media_item: media_item} do
       media_item =
         update_media_profile_attribute(media_item, %{output_path_template: "{{ media_upload_date_index }}.%(ext)s"})

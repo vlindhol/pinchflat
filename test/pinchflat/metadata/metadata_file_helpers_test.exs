@@ -191,6 +191,62 @@ defmodule Pinchflat.Metadata.MetadataFileHelpersTest do
     end
   end
 
+  describe "series_directory_from_output_path/2" do
+    test "uses leading literal directory components as the series directory" do
+      output_path =
+        "/tmp/test/media/videos/Channel Name/Season %(upload_date>%Y)S/s%(upload_date>%Y)Se%(upload_date>%m%d)S.%(ext)S"
+
+      assert {:ok, "/tmp/test/media/videos/Channel Name"} =
+               Helpers.series_directory_from_output_path(output_path)
+    end
+
+    test "works with flat output templates (no Season subdirectory)" do
+      output_path = "/tmp/test/media/videos/Channel Name/%(title)S - %(id)S.%(ext)S"
+
+      assert {:ok, "/tmp/test/media/videos/Channel Name"} =
+               Helpers.series_directory_from_output_path(output_path)
+    end
+
+    test "does not include per-episode directories like title/date folders" do
+      output_path = "/tmp/test/media/Channel Name/%(upload_date>%Y-%m-%d)S %(title)S/%(title)S [%(id)S].%(ext)S"
+
+      assert {:ok, "/tmp/test/media/Channel Name"} =
+               Helpers.series_directory_from_output_path(output_path)
+    end
+
+    test "resolves source-level placeholders using the example filepath" do
+      output_path = "/tmp/test/media/videos/%(channel)S/%(title)S - %(id)S.%(ext)S"
+      example_filepath = "/tmp/test/media/videos/Smosh Games/Video Title - abc123.mp4"
+
+      assert {:ok, "/tmp/test/media/videos/Smosh Games"} =
+               Helpers.series_directory_from_output_path(output_path, example_filepath)
+    end
+
+    test "returns an error when a source-level placeholder can't be resolved" do
+      # Without an example filepath we can't know the resolved value of
+      # %(channel)S, and returning /tmp/test/media/videos could merge
+      # unrelated sources into one shared directory.
+      output_path = "/tmp/test/media/videos/%(channel)S/%(title)S.%(ext)S"
+
+      assert {:error, :indeterminable} = Helpers.series_directory_from_output_path(output_path)
+    end
+
+    test "returns an error when the series directory can't be determined" do
+      # Media file directly in the media base, no source-level directory
+      assert {:error, :indeterminable} =
+               Helpers.series_directory_from_output_path("/tmp/test/media/%(title)S.%(ext)S")
+    end
+
+    test "ignores example filepaths that don't match the template structure" do
+      output_path = "/tmp/test/media/videos/%(channel)S/%(title)S.%(ext)S"
+      # "audio" doesn't match the "videos" static prefix
+      example_filepath = "/tmp/test/media/audio/Some Channel/file.mp4"
+
+      assert {:ok, "/tmp/test/media/videos"} =
+               Helpers.series_directory_from_output_path(output_path, example_filepath)
+    end
+  end
+
   describe "season_and_episode_from_media_filepath/1" do
     test "returns a season and episode if one can be determined" do
       assert {:ok, {"1", "2"}} = Helpers.season_and_episode_from_media_filepath("/foo/s1e2 - test.mp4")

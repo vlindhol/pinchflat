@@ -128,6 +128,108 @@ defmodule Pinchflat.Metadata.MetadataFileHelpers do
   end
 
   @doc """
+  Determines the series directory for a source from its rendered output path
+  template and, when available, an example media filepath resolved by yt-dlp.
+
+  Works by inspecting the output path's directory components:
+
+    * Leading components that are fully literal (contain no yt-dlp template
+      fields) belong to the series directory.
+    * The first component that DOES contain a yt-dlp field is included only
+      if it appears to be source-level (channel/uploader-style fields) rather
+      than per-episode (title/id/upload_date-style fields) - source-level
+      components are resolved using the example filepath.
+
+  Unlike `series_directory_from_media_filepath/1`, this works with flat output
+  templates that don't use "Season N" subdirectories - the series directory is
+  the source's "root" directory regardless of the naming scheme used below it.
+
+  Returns {:ok, binary()} | {:error, :indeterminable}
+  """
+  def series_directory_from_output_path(output_path, example_filepath \\ nil) do
+    components =
+      output_path
+      |> Path.relative_to(base_media_directory())
+      |> Path.split()
+
+    {dir_components, _filename} = Enum.split(components, -1)
+
+    Enum.find_index(dir_components, &String.contains?(&1, "%("))
+    |> case do
+      # No template fields in any directory component: the entire directory
+      # portion is constant for the source, so it is the series directory.
+      nil ->
+        join_or_error(dir_components)
+
+      idx ->
+        static_prefix = Enum.take(dir_components, idx)
+        placeholder_component = Enum.at(dir_components, idx)
+
+        cond do
+          # Per-episode directories (title/date-based) are never part of the
+          # series directory - everything before them is.
+          per_episode_component?(placeholder_component) ->
+            join_or_error(static_prefix)
+
+          # Source-level placeholders (channel, uploader, ...) can be included
+          # once resolved against a real media filepath from yt-dlp.
+          is_binary(example_filepath) ->
+            case resolve_placeholder_dir(example_filepath, static_prefix, idx) do
+              {:ok, resolved} -> join_or_error(static_prefix ++ [resolved])
+              :error -> join_or_error(static_prefix)
+            end
+
+          # A source-level placeholder we can't resolve: without an example we
+          # would be guessing, and guessing could merge unrelated sources into
+          # one shared directory. Error out instead.
+          true ->
+            {:error, :indeterminable}
+        end
+    end
+  rescue
+    _ -> {:error, :indeterminable}
+  end
+
+  # Extracts the directory component at the given depth (relative to the media
+  # base) from a concrete media filepath produced by yt-dlp. This value is the
+  # resolved form of the template field at that position. Only trusts the
+  # example if its leading components match the template's static prefix -
+  # otherwise the example isn't structurally aligned with the template.
+  defp resolve_placeholder_dir(example_filepath, static_prefix, index) do
+    example_dirs =
+      example_filepath
+      |> Path.relative_to(base_media_directory())
+      |> Path.split()
+      |> Enum.drop(-1)
+
+    if Enum.take(example_dirs, length(static_prefix)) == static_prefix do
+      case Enum.fetch(example_dirs, index) do
+        {:ok, dir} when is_binary(dir) and dir != "" -> {:ok, dir}
+        _ -> :error
+      end
+    else
+      :error
+    end
+  rescue
+    _ -> :error
+  end
+
+  # Note: matching on prefixes since yt-dlp renderings include format suffixes
+  # like "%(upload_date>%Y)S" so a closing paren can't be relied on.
+  defp per_episode_component?(component) do
+    Enum.any?(~w(%(title %(id %(upload_date %(upload_timestamp %(playlist_index %(epoch), fn marker ->
+      String.contains?(component, marker)
+    end)
+  end
+
+  defp join_or_error([]), do: {:error, :indeterminable}
+  defp join_or_error(components), do: {:ok, Path.join([base_media_directory() | components])}
+
+  defp base_media_directory do
+    Application.get_env(:pinchflat, :media_directory)
+  end
+
+  @doc """
   Attempts to determine the season and episode number from a media filepath.
 
   Returns {:ok, {binary(), binary()}} | {:error, :indeterminable}
