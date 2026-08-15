@@ -10,6 +10,7 @@ defmodule Pinchflat.Downloading.DownloadOptionBuilder do
   alias Pinchflat.Downloading.QualityOptionBuilder
 
   alias Pinchflat.Utils.FilesystemUtils, as: FSUtils
+  alias Pinchflat.Utils.FilenameSanitizer
 
   @doc """
   Builds the options for yt-dlp to download media based on the given media's profile.
@@ -200,18 +201,32 @@ defmodule Pinchflat.Downloading.DownloadOptionBuilder do
   defp output_options_map(media_item_with_preloads) do
     source = media_item_with_preloads.source
 
+    # Sanitize Pinchflat-provided values that become literal path components.
+    # Unlike yt-dlp's --restrict-filenames, this preserves spaces in directory
+    # names so user-friendly templates like /{{ source_custom_name }}/... work.
     %{
       "media_item_id" => to_string(media_item_with_preloads.id),
       "source_id" => to_string(source.id),
       "media_profile_id" => to_string(source.media_profile_id),
-      "source_custom_name" => source.custom_name,
+      # Keep friendly names for NFO/metadata, but make Unicode-safe.
+      "source_custom_name" => sanitize_path_component(source.custom_name),
       "source_collection_id" => source.collection_id,
-      "source_collection_name" => source.collection_name,
+      # Collection name often contains Unicode punctuation.
+      "source_collection_name" => sanitize_path_component(source.collection_name),
       "source_collection_type" => to_string(source.collection_type),
       "media_playlist_index" => pad_int(media_item_with_preloads.playlist_index),
       "media_upload_date_index" => pad_int(media_item_with_preloads.upload_date_index)
     }
   end
+
+  # Delegates to our sanitizer which normalizes Unicode and preserves spaces.
+  # This is distinct from --restrict-filenames which mangles spaces into underscores.
+  # Some source attributes (like collection_name) can be nil - pass those through.
+  defp sanitize_path_component(value) when is_binary(value) do
+    FilenameSanitizer.sanitize_path_component(value)
+  end
+
+  defp sanitize_path_component(value), do: value
 
   # I don't love the string manipulation here, but what can ya' do.
   # It's dependent on the output_path_template being a string ending `.{{ ext }}`

@@ -96,7 +96,17 @@ defmodule Pinchflat.Metadata.SourceMetadataStorageWorker do
     addl_opts = [use_cookies: Sources.use_cookies?(source, :metadata)]
     {:ok, %{filepath: filepath}} = MediaCollection.get_source_details(source.original_url, runner_opts, addl_opts)
 
-    case MetadataFileHelpers.series_directory_from_media_filepath(filepath) do
+    # Prefer the template-aware detection which works for flat output
+    # templates (no Season subdirectories), fall back to the legacy
+    # season-regex approach for backwards compatibility.
+    case MetadataFileHelpers.series_directory_from_output_path(output_path, filepath) do
+      {:ok, series_directory} -> series_directory
+      {:error, _} -> series_directory_or_nil(filepath)
+    end
+  end
+
+  defp series_directory_or_nil(example_filepath) do
+    case MetadataFileHelpers.series_directory_from_media_filepath(example_filepath) do
       {:ok, series_directory} -> series_directory
       {:error, _} -> nil
     end
